@@ -23,7 +23,7 @@ OPTIMAL_THRESHOLD_HIGH = 0.85
 OPTIMAL_THRESHOLD_LOW = 0.11
 
 NIFTY50_URL = "https://en.wikipedia.org/wiki/NIFTY_50"
-FALLBACK_NIFTY50_STOCKS =[
+FALLBACK_NIFTY50_STOCKS = [
 "ETERNAL.NS","SUNPHARMA.NS","ICICIBANK.NS","BHARTIARTL.NS","BAJAJFINSV.NS","KOTAKBANK.NS","SBIN.NS","RELIANCE.NS","SBILIFE.NS","AXISBANK.NS","ADANIPORTS.NS","GRASIM.NS","SHRIRAMFIN.NS","TRENT.NS","JIOFIN.NS","M&M.NS","TITAN.NS","HDFCBANK.NS","ULTRACEMCO.NS","NESTLEIND.NS","BAJFINANCE.NS","NTPC.NS","CIPLA.NS","TATACONSUM.NS","ONGC.NS","INFY.NS","APOLLOHOSP.NS","POWERGRID.NS","EICHERMOT.NS","TATAMOTORS.NS","TCS.NS","ITC.NS","BAJAJ-AUTO.NS","INDUSINDBK.NS","LT.NS","HCLTECH.NS","DRREDDY.NS","HDFCLIFE.NS","BEL.NS","HINDUNILVR.NS","ASIANPAINT.NS","TATASTEEL.NS","MARUTI.NS","ADANIENT.NS","COALINDIA.NS","JSWSTEEL.NS","HEROMOTOCO.NS","TECHM.NS","HINDALCO.NS","WIPRO.NS"
 ]
 
@@ -137,7 +137,7 @@ def main(tickers):
             print(f"\n[3/4] Training model for {ticker}...")
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                results, model, metrics, importance, threshold = train_and_evaluate(
+                results, model, metrics, threshold = train_and_evaluate(
                     data,
                     model_type='xgboost'
                 )
@@ -187,6 +187,8 @@ def main(tickers):
     # Save buy recommendations to Excel
     if buy_recommendations:
         buy_df = pd.DataFrame(buy_recommendations)
+        if 'Last_Signal_Date' in buy_df.columns:
+            buy_df['Last_Signal_Date'] = buy_df['Last_Signal_Date'].dt.tz_localize(None)
         buy_excel_path = os.path.join(output_folder, BUY_RECOMMENDATIONS_FILENAME.format(timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")))
         buy_df.to_excel(buy_excel_path, index=False)
         print(f"\nBuy recommendations (Optimal Threshold < {OPTIMAL_THRESHOLD_LOW:.2f}) saved to: {buy_excel_path}")
@@ -196,6 +198,8 @@ def main(tickers):
     # Save sell recommendations to Excel
     if sell_recommendations:
         sell_df = pd.DataFrame(sell_recommendations)
+        if 'Last_Signal_Date' in sell_df.columns:
+            sell_df['Last_Signal_Date'] = sell_df['Last_Signal_Date'].dt.tz_localize(None)
         sell_excel_path = os.path.join(output_folder, SELL_RECOMMENDATIONS_FILENAME.format(timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")))
         sell_df.to_excel(sell_excel_path, index=False)
         print(f"\nSell recommendations (Optimal Threshold > {OPTIMAL_THRESHOLD_HIGH:.2f}) saved to: {sell_excel_path}")
@@ -226,7 +230,7 @@ if __name__ == "__main__":
         import matplotlib.pyplot as plt
         import seaborn as sns
         import pickle
-        import openpyxl # Verify openpyxl is importable
+        import openpyxl
     except ImportError as e:
         print(f"Missing dependency: {e}")
         print("Install with: pip install yfinance pandas numpy xgboost scikit-learn matplotlib seaborn pickle openpyxl")
