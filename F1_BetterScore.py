@@ -10,23 +10,20 @@ from model import create_features, prepare_target, train_and_evaluate, TradingMo
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pickle  # For saving the model
+import openpyxl
 
 # --- Configuration ---
-OUTPUT_FOLDER_NAME = "modelresult"
+OUTPUT_FOLDER_NAME = "modelresult_threshold_filtered"
 DOWNLOAD_TIMEFRAME = "3y"  # Increased for potentially more data
-SIGNAL_PLOT_ALPHA = 0.7
-BUY_SIGNAL_MARKER = '^'
-SELL_SIGNAL_MARKER = 'v'
-SIGNAL_MARKER_SIZE = 50
-FEATURE_IMPORTANCE_BAR_COLOR = 'skyblue'
 RESULTS_FILENAME_FORMAT = "{ticker}_results_{timestamp}.csv"
 MODEL_FILENAME_FORMAT = "{ticker}_model_{timestamp}.pkl"
-SIGNALS_PLOT_FILENAME = "{ticker}_signals.png"
-F1_SCORES_PLOT_FILENAME = "{ticker}_f1_scores.png"
-FEATURE_IMPORTANCE_PLOT_FILENAME = "{ticker}_feature_importance.png"
+BUY_RECOMMENDATIONS_FILENAME = "buy_recommendations_threshold_filtered_{timestamp}.xlsx"
+SELL_RECOMMENDATIONS_FILENAME = "sell_recommendations_threshold_filtered_{timestamp}.xlsx"
+OPTIMAL_THRESHOLD_HIGH = 0.85
+OPTIMAL_THRESHOLD_LOW = 0.11
 
 NIFTY50_URL = "https://en.wikipedia.org/wiki/NIFTY_50"
-FALLBACK_NIFTY50_STOCKS = [
+FALLBACK_NIFTY50_STOCKS =[
 "ETERNAL.NS","SUNPHARMA.NS","ICICIBANK.NS","BHARTIARTL.NS","BAJAJFINSV.NS","KOTAKBANK.NS","SBIN.NS","RELIANCE.NS","SBILIFE.NS","AXISBANK.NS","ADANIPORTS.NS","GRASIM.NS","SHRIRAMFIN.NS","TRENT.NS","JIOFIN.NS","M&M.NS","TITAN.NS","HDFCBANK.NS","ULTRACEMCO.NS","NESTLEIND.NS","BAJFINANCE.NS","NTPC.NS","CIPLA.NS","TATACONSUM.NS","ONGC.NS","INFY.NS","APOLLOHOSP.NS","POWERGRID.NS","EICHERMOT.NS","TATAMOTORS.NS","TCS.NS","ITC.NS","BAJAJ-AUTO.NS","INDUSINDBK.NS","LT.NS","HCLTECH.NS","DRREDDY.NS","HDFCLIFE.NS","BEL.NS","HINDUNILVR.NS","ASIANPAINT.NS","TATASTEEL.NS","MARUTI.NS","ADANIENT.NS","COALINDIA.NS","JSWSTEEL.NS","HEROMOTOCO.NS","TECHM.NS","HINDALCO.NS","WIPRO.NS"
 ]
 
@@ -103,51 +100,17 @@ def download_stock_data(ticker, timeframe=DOWNLOAD_TIMEFRAME):
     raise ValueError(f"Unable to download data for {ticker} with any method")
 
 
-def plot_results(df, metrics, importance, threshold, ticker, output_dir):
-    """Plotting function to visualize results for a specific ticker and save to a directory"""
-    plt.figure(figsize=(12, 6))
-    plt.plot(df.index, df['close'], label=f'{ticker} Close Price', alpha=SIGNAL_PLOT_ALPHA)
-    plt.scatter(df[df['signal'] == 1].index, df['close'][df['signal'] == 1], marker=BUY_SIGNAL_MARKER, color='g', label='Buy Signal', s=SIGNAL_MARKER_SIZE)
-    plt.scatter(df[df['signal'] == -1].index, df['close'][df['signal'] == -1], marker=SELL_SIGNAL_MARKER, color='r', label='Sell Signal', s=SIGNAL_MARKER_SIZE)
-    plt.title(f'Trading Signals on {ticker}')
-    plt.xlabel('Date')
-    plt.ylabel('Price')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(output_dir, SIGNALS_PLOT_FILENAME.format(ticker=ticker)))
-    plt.close()
-
-    if metrics is not None:
-        plt.figure(figsize=(8, 6))
-        sns.barplot(x=metrics.index, y=metrics['f1'], color=FEATURE_IMPORTANCE_BAR_COLOR)
-        plt.title(f'Walk-Forward Validation F1 Scores for {ticker}')
-        plt.xlabel('Fold')
-        plt.ylabel('F1 Score')
-        plt.savefig(os.path.join(output_dir, F1_SCORES_PLOT_FILENAME.format(ticker=ticker)))
-        print(f"\nWalk-Forward Validation Metrics for {ticker}:\n{metrics}")
-        plt.close()
-
-    if importance is not None:
-        plt.figure(figsize=(10, 6))
-        importance.sort_values(ascending=False).plot(kind='bar', color=FEATURE_IMPORTANCE_BAR_COLOR)
-        plt.title(f'Feature Importance for {ticker}')
-        plt.ylabel('Importance Score')
-        plt.xlabel('Feature')
-        plt.savefig(os.path.join(output_dir, FEATURE_IMPORTANCE_PLOT_FILENAME.format(ticker=ticker)))
-        print(f"\nFeature Importance for {ticker}:\n{importance}")
-        plt.close()
-
-    print(f"\nOptimal Probability Threshold for {ticker}: {threshold:.2f}")
-
-
 def main(tickers):
     desktop = os.path.expanduser("~/Desktop")
     output_folder = os.path.join(desktop, OUTPUT_FOLDER_NAME)
     os.makedirs(output_folder, exist_ok=True)
     print(f"\nSaving results to: {output_folder}")
 
+    buy_recommendations = []
+    sell_recommendations = []
+
     for ticker in tickers:
-        print(f"\n{'='*30} Processing {ticker} {'='*30}")
+        print(f"\n{'='*30} Processing {ticker} for Threshold Filtering {'='*30}")
         try:
             # 1. Download data
             print(f"\n[1/4] Downloading {ticker} data...")
@@ -178,15 +141,32 @@ def main(tickers):
                     data,
                     model_type='xgboost'
                 )
+                print(f"\nOptimal Probability Threshold for {ticker}: {threshold:.2f}")
 
-            # 4. Save and Plot results
+                if threshold > OPTIMAL_THRESHOLD_HIGH:
+                    if results['signal'].iloc[-1] == -1:
+                        sell_recommendations.append({
+                            "Ticker": ticker,
+                            "Optimal_Threshold": f"{threshold:.2f}",
+                            "Last_Signal_Date": results.index[-1],
+                            "Last_Price": results['close'].iloc[-1],
+                            "F1_Score": f"{metrics['f1'].mean():.2f}"
+                        })
+                elif threshold < OPTIMAL_THRESHOLD_LOW:
+                    if results['signal'].iloc[-1] == 1:
+                        buy_recommendations.append({
+                            "Ticker": ticker,
+                            "Optimal_Threshold": f"{threshold:.2f}",
+                            "Last_Signal_Date": results.index[-1],
+                            "Last_Price": results['close'].iloc[-1],
+                            "F1_Score": f"{metrics['f1'].mean():.2f}"
+                        })
+
+            # 4. Save results
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             results_output_file = os.path.join(output_folder, RESULTS_FILENAME_FORMAT.format(ticker=ticker, timestamp=timestamp))
             results.to_csv(results_output_file)
             print(f"\n[4/4] Success! Results for {ticker} saved to {results_output_file}")
-
-            print(f"\n[Plotting Results for {ticker}...]")
-            plot_results(results.copy(), metrics, importance, threshold, ticker, output_folder) # Pass output folder
 
             # 5. Save the trained model
             model_filename = os.path.join(output_folder, MODEL_FILENAME_FORMAT.format(ticker=ticker, timestamp=timestamp))
@@ -199,10 +179,28 @@ def main(tickers):
         except Exception as e:
             print(f"\nFATAL ERROR while processing {ticker}: {str(e)}")
             print("\nTROUBLESHOOTING:")
-            print("1. Update all packages: pip install --upgrade yfinance pandas numpy scikit-learn xgboost matplotlib seaborn pickle")
+            print("1. Update all packages: pip install --upgrade yfinance pandas numpy scikit-learn xgboost matplotlib seaborn pickle openpyxl")
             print("2. Check the ticker symbol is correct (ensure '.NS' if needed)")
             print("3. Try a different timeframe (e.g., '{DOWNLOAD_TIMEFRAME}' or '3mo')")
             print("4. Check model.py for missing indicator functions")
+
+    # Save buy recommendations to Excel
+    if buy_recommendations:
+        buy_df = pd.DataFrame(buy_recommendations)
+        buy_excel_path = os.path.join(output_folder, BUY_RECOMMENDATIONS_FILENAME.format(timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")))
+        buy_df.to_excel(buy_excel_path, index=False)
+        print(f"\nBuy recommendations (Optimal Threshold < {OPTIMAL_THRESHOLD_LOW:.2f}) saved to: {buy_excel_path}")
+    else:
+        print(f"\nNo buy recommendations found with Optimal Threshold < {OPTIMAL_THRESHOLD_LOW:.2f}")
+
+    # Save sell recommendations to Excel
+    if sell_recommendations:
+        sell_df = pd.DataFrame(sell_recommendations)
+        sell_excel_path = os.path.join(output_folder, SELL_RECOMMENDATIONS_FILENAME.format(timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")))
+        sell_df.to_excel(sell_excel_path, index=False)
+        print(f"\nSell recommendations (Optimal Threshold > {OPTIMAL_THRESHOLD_HIGH:.2f}) saved to: {sell_excel_path}")
+    else:
+        print(f"\nNo sell recommendations found with Optimal Threshold > {OPTIMAL_THRESHOLD_HIGH:.2f}")
 
 
 if __name__ == "__main__":
@@ -227,10 +225,11 @@ if __name__ == "__main__":
         from model import create_features  # Test import
         import matplotlib.pyplot as plt
         import seaborn as sns
-        import pickle # Verify pickle is importable
+        import pickle
+        import openpyxl # Verify openpyxl is importable
     except ImportError as e:
         print(f"Missing dependency: {e}")
-        print("Install with: pip install yfinance pandas numpy xgboost scikit-learn matplotlib seaborn pickle")
+        print("Install with: pip install yfinance pandas numpy xgboost scikit-learn matplotlib seaborn pickle openpyxl")
         sys.exit(1)
 
     main(nifty50_tickers)
