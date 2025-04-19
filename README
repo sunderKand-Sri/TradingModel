@@ -1,0 +1,4 @@
+README for XGBoost Binary Classification Model
+This repository contains scripts for training and using an XGBoost binary classification model. The model is serialized in a .pkl file and can be used for tasks like fraud detection, churn prediction, or any binary classification problem.
+
+
